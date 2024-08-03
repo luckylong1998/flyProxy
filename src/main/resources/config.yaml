@@ -25,7 +25,7 @@ clientProtocolForward:
  #协议转发 客户端请求协议为  http 则转发到172.18.1.50:80  ssh 则转发到172.18.1.50:22
   protocols:
     http: "172.18.1.50:3000"
-    https: "www.baidu.com:443"
+#    https: "www.baidu.com:443"
     ssh: "172.18.1.50:22"
-    mysql: "127.0.0.1:3306"
+#    mysql: "127.0.0.1:3306"
 
