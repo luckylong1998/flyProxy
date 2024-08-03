@@ -1,7 +1,59 @@
+## 介绍
+
+本项目内容为Java 的tcp代理转发
+
+- 可根据客户端请求ip进行转发请求
+- 可根据客户端协议进行转发请求
+
+
+
+
+
+## 配置说明
+
+```yaml
+#程序启动监听的端口号
+port: 8080
+#线程池数量
+threadPoolSize: 100
+#默认转发规则
+defaultForward: "172.18.1.50:80"
+
+#是否根据请求开启IP转发  ip转发和客户端协议转发互斥   当两个都开启的时候，以IP转发为准
+
+#根据客户端请求ip转发
+ipForward:
+  enable: false
+  forward:
+    #如果客户端请求IP为  172.18.1.50  或者 172.18.1.18  则转发到172.18.1.50:3000
+    "172.18.1.50:3000":
+      - "172.18.1.50"
+      - "172.18.1.12"
+    "172.18.1.50:22":
+      - "127.0.0.1"
+
+#是否开启客户端协议转发   ip转发和客户端协议转发互斥
+clientProtocolForward:
+  enable: true
+  #客户端协议转发规则
+ #协议转发 客户端请求协议为  http 则转发到172.18.1.50:80  ssh 则转发到172.18.1.50:22
+  protocols:
+    http: "172.18.1.50:3000"
+#    https: "www.baidu.com:443"
+    ssh: "172.18.1.50:22"
+#    mysql: "127.0.0.1:3306"
+```
+
+
+
 ## 打包说明
 
+> 先用Maven 打包成jar 再用 jpackage  打包成可执行的文件
+
+
+
 ```` shell
-    jpackage    --input target   --name ProxyApp  --main-jar fly-proxy.jar  --type app-image
+    jpackage    --input target   --name flyProxy  --main-jar fly-proxy.jar  --type app-image
 ````
 
 上述命令中：
