@@ -16,7 +16,8 @@
 package com.luckylong.proxy;
 
 import com.luckylong.proxy.config.Config;
-import com.luckylong.proxy.thread.ClientHandler;
+import com.luckylong.proxy.thread.ClientProtocolHandler;
+import com.luckylong.proxy.thread.NioTcpHandler;
 import com.luckylong.proxy.util.FileUtil;
 
 import java.io.IOException;
@@ -32,22 +33,57 @@ import java.util.concurrent.Executors;
  */
 public class Application {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         Config config = FileUtil.getConfig();
+        System.out.println("config:"+config.toString());
+        System.out.println("defaultForward:"+config.getDefaultForward());
 
+        if(config.getIpForward().isEnable()){
+            System.out.println("ipForward is enable");
+            startClientIpForward(config);
+        } else if(config.getClientProtocolForward().isEnable()){
+            System.out.println("clientProtocolForward is enable");
+            startClientProtocolForward(config);
+        }
+
+    }
+
+    /**
+     * 启动客户端协议转发
+     * @param config
+     * @param threadPool
+     */
+    private static void startClientProtocolForward( Config config  ){
         ExecutorService threadPool = Executors.newFixedThreadPool(config.getThreadPoolSize());
 
         try (ServerSocket serverSocket = new ServerSocket(config.getPort())) {
             System.out.println("Server is listening on port " + config.getPort());
             while (true) {
                 Socket socket = serverSocket.accept();
-                threadPool.submit(new ClientHandler(socket));
+                threadPool.submit(new ClientProtocolHandler(socket));
             }
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
             threadPool.shutdown();
         }
-
     }
+
+    /**
+     * 启动客户端协议转发
+     * @param config
+     * @param threadPool
+     */
+    private static void startClientIpForward( Config config  ) throws IOException {
+        NioTcpHandler proxy = new NioTcpHandler(config);
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                proxy.shutdown();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }));
+        proxy.start();
+    }
+
 }

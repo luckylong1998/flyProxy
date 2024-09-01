@@ -71,11 +71,17 @@ public class IpForward implements Serializable {
         if (!enable) {
             return null;
         }
+        System.out.println(forward);
         for (Map.Entry<String, List<String>> tempMap : forward.entrySet()) {
             if(tempMap.getValue().contains(ip)){
                 return tempMap.getKey();
             }
         }
         return FileUtil.getConfig().getDefaultForward();
+    }
+
+    @Override
+    public String toString() {
+        return "IpForward{" + "enable=" + enable + ", forward=" + forward + '}';
     }
 }

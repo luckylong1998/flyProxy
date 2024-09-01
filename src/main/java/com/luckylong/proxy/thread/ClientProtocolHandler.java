@@ -29,14 +29,14 @@ import java.net.URISyntaxException;
  * @author xiaofeilong
  * @date 2024/8/3 16:53
  */
-public class ClientHandler extends Thread {
+public class ClientProtocolHandler extends Thread {
 
     private final Socket socket;
 
     //private static final int SOCKET_TIMEOUT_MS = 500000;
 
 
-    public ClientHandler(Socket socket) {
+    public ClientProtocolHandler(Socket socket) {
         this.socket = socket;
     }
 
@@ -46,20 +46,13 @@ public class ClientHandler extends Thread {
         System.out.println("Handling new connection from " + socket.getInetAddress() + ":" + socket.getPort());
         try (InputStream input = socket.getInputStream()) {
             //socket.setSoTimeout(SOCKET_TIMEOUT_MS); // Set a timeout to avoid blocking indefinitely
-
             byte[] buffer = new byte[8];
-
             int bytesRead = input.read(buffer);
             if (bytesRead != -1) {
                 //是否开启IP转发
                 Config config = FileUtil.getConfig();
-               if(config.getIpForward().isEnable()){
-                   String forward = config.getIpForward().getForward(socket.getInetAddress().getHostAddress());
-                   handleTraffic(socket, buffer, bytesRead, forward);
-               } else if(config.getClientProtocolForward().isEnable()){
-                   String forward = config.getClientProtocolForward().getForward(buffer, bytesRead);
-                   handleTraffic(socket, buffer, bytesRead, forward);
-               }
+                String forward = config.getClientProtocolForward().getForward(buffer, bytesRead);
+                handleTraffic(socket, buffer, bytesRead, forward);
             }
         } catch (IOException | URISyntaxException e) {
             e.printStackTrace();

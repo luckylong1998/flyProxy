@@ -76,4 +76,9 @@ public class ClientProtocolForward implements Serializable {
         String forward = protocols.get( ProtocolUtil.getProtocol(buffer, bytesRead));
         return forward != null ? forward : FileUtil.getConfig().getDefaultForward();
     }
+
+    @Override
+    public String toString() {
+        return "ClientProtocolForward{" + "enable=" + enable + ", protocols=" + protocols + '}';
+    }
 }

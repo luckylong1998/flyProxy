@@ -95,4 +95,9 @@ public class Config implements Serializable {
         this.threadPoolSize = threadPoolSize;
         this.defaultForward = defaultForward;
     }
+
+    @Override
+    public String toString() {
+        return "Config{" + "port=" + port + ", ipForward=" + (ipForward != null ? ipForward.toString() : "null")  + ", clientProtocolForward=" + (clientProtocolForward != null ? clientProtocolForward.toString() : "null") + ", threadPoolSize=" + threadPoolSize + ", defaultForward='" + defaultForward + '\'' + '}';
+    }
 }
