@@ -9,16 +9,23 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
-public class NioTcpNewProxy {
+public class ExecutorsNioProxy {
     private final String remoteHost;
     private final int remotePort;
     private final int localPort;
+    private final ExecutorService threadPool;
+    private final Semaphore connectionSemaphore;
 
-    public NioTcpNewProxy(String remoteHost, int remotePort, int localPort) {
+    public ExecutorsNioProxy(String remoteHost, int remotePort, int localPort, int maxConnections) {
         this.remoteHost = remoteHost;
         this.remotePort = remotePort;
         this.localPort = localPort;
+        this.threadPool = Executors.newFixedThreadPool(maxConnections);
+        this.connectionSemaphore = new Semaphore(maxConnections);
     }
 
     public void start() throws IOException {
@@ -27,8 +34,6 @@ public class NioTcpNewProxy {
         serverChannel.bind(new InetSocketAddress(localPort));
         serverChannel.configureBlocking(false);
         serverChannel.register(selector, SelectionKey.OP_ACCEPT);
-
-        ByteBuffer buffer = ByteBuffer.allocate(1024);
 
         while (true) {
             try {
@@ -43,14 +48,32 @@ public class NioTcpNewProxy {
                     if (!key.isValid()) continue;
 
                     if (key.isAcceptable()) {
-                        System.out.println("接受");
-                        accept(key, selector);
+                        if (connectionSemaphore.tryAcquire()) {
+                            threadPool.execute(() -> {
+                                try {
+                                    accept(key, selector);
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
+                            });
+                        } else {
+                            System.out.println("Maximum connections reached. Connection refused.");
+                            ServerSocketChannel serverSocketChannel = (ServerSocketChannel) key.channel();
+                            SocketChannel clientChannel = serverSocketChannel.accept();
+                            clientChannel.close();
+                        }
                     } else if (key.isReadable()) {
-                        System.out.println("读取");
-                        read(key, selector, buffer);
+                        threadPool.execute(() -> {
+                            read(key, selector);
+                        });
                     } else if (key.isWritable()) {
-                        System.out.println("写入");
-                        write(key);
+                        threadPool.execute(() -> {
+                            try {
+                                write(key);
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        });
                     }
                 }
             } catch (IOException e) {
@@ -63,12 +86,16 @@ public class NioTcpNewProxy {
     private void accept(SelectionKey key, Selector selector) throws IOException {
         ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
         SocketChannel clientChannel = serverChannel.accept();
+        if(clientChannel == null) {
+            System.out.println("Failed to accept connection.");
+            return;
+        }
+
         clientChannel.configureBlocking(false);
 
         InetSocketAddress remoteAddress = (InetSocketAddress) clientChannel.getRemoteAddress();
         String clientIpAddress = remoteAddress.getAddress().getHostAddress();
         System.out.println("Accepted connection from " + clientIpAddress);
-
 
         SocketChannel remoteChannel = SocketChannel.open(new InetSocketAddress(remoteHost, remotePort));
         remoteChannel.configureBlocking(false);
@@ -76,30 +103,44 @@ public class NioTcpNewProxy {
         remoteChannel.register(selector, SelectionKey.OP_READ, clientChannel);
     }
 
-    private void read(SelectionKey key, Selector selector, ByteBuffer buffer) throws IOException {
+    private void read(SelectionKey key, Selector selector) {
         SocketChannel channel = (SocketChannel) key.channel();
         SocketChannel peerChannel = (SocketChannel) key.attachment();
 
-        buffer.clear();
-        int bytesRead = channel.read(buffer);
-        if (bytesRead == -1) {
-            channel.close();
-            peerChannel.close();
-            return;
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        try {
+            int bytesRead = channel.read(buffer);
+            if (bytesRead == -1) {
+                closeConnection(channel, peerChannel);
+                return;
+            }
+
+            buffer.flip();
+
+            String protocol = detectProtocol(buffer);
+            System.out.println("Detected protocol: " + protocol);
+
+            while (buffer.hasRemaining()) {
+                peerChannel.write(buffer);
+            }
+
+            key.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+            peerChannel.keyFor(selector).interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+
+        } catch (IOException e) {
+            if (e instanceof java.net.SocketException && e.getMessage().contains("Connection reset")) {
+                System.out.println("Connection reset by peer.");
+            } else {
+                e.printStackTrace();
+            }
+            try {
+                closeConnection(channel, peerChannel);
+            } catch (IOException closeException) {
+                closeException.printStackTrace();
+            }
         }
-
-        buffer.flip();
-
-        String protocol = detectProtocol(buffer);
-        System.out.println("Detected protocol: " + protocol);
-
-        while (buffer.hasRemaining()) {
-            peerChannel.write(buffer);
-        }
-
-        key.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
-        peerChannel.keyFor(selector).interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
     }
+
 
     private void write(SelectionKey key) throws IOException {
         SocketChannel channel = (SocketChannel) key.channel();
@@ -107,12 +148,16 @@ public class NioTcpNewProxy {
         key.interestOps(SelectionKey.OP_READ);
     }
 
+    private void closeConnection(SocketChannel channel, SocketChannel peerChannel) throws IOException {
+        channel.close();
+        peerChannel.close();
+        connectionSemaphore.release();
+    }
 
     private String detectProtocol(ByteBuffer buffer) {
-
         String protocol = "UNKNOWN";
         String data = new String(buffer.array(), buffer.position(), buffer.limit());
-        
+
         if (data.startsWith("GET") || data.startsWith("POST") || data.startsWith("HEAD")) {
             protocol = "HTTP";
         } else if (data.startsWith("SSH-")) {
@@ -126,7 +171,7 @@ public class NioTcpNewProxy {
     }
 
     public static void main(String[] args) throws IOException {
-        NioTcpNewProxy proxy = new NioTcpNewProxy("172.18.1.50", 22, 8080);
+        ExecutorsNioProxy proxy = new ExecutorsNioProxy("172.18.1.50", 3000, 8080, 1000);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
                 proxy.shutdown();
@@ -138,7 +183,7 @@ public class NioTcpNewProxy {
     }
 
     private void shutdown() throws IOException {
-        // Implement graceful shutdown logic if needed
+        threadPool.shutdownNow();
         System.out.println("退出");
     }
 }
